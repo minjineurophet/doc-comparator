@@ -12,15 +12,50 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.docx-prose {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: #1f2937;
+}
+.docx-prose h1, .docx-prose h2, .docx-prose h3, .docx-prose h4, .docx-prose h5, .docx-prose h6 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+.docx-prose h1 { font-size: 1.5rem; }
+.docx-prose h2 { font-size: 1.25rem; }
+.docx-prose h3 { font-size: 1.1rem; }
+.docx-prose p { margin-bottom: 0.75em; }
+.docx-prose table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+.docx-prose th, .docx-prose td { border: 1px solid #d1d5db; padding: 0.4em 0.7em; text-align: left; }
+.docx-prose th { background: #f3f4f6; font-weight: 600; }
+.docx-prose ul, .docx-prose ol { padding-left: 1.5em; margin-bottom: 0.75em; }
+.docx-prose li { margin-bottom: 0.25em; }
+.docx-prose a { color: #2563eb; text-decoration: underline; }
+.docx-prose img { max-width: 100%; height: auto; margin: 0.5em 0; }
+
+.pdfjs-text-layer span {
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  color: transparent;
+}
+.pdfjs-text-layer span::selection {
+  background: rgba(0,100,255,0.25);
+  color: transparent;
 }

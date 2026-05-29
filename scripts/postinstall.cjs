@@ -1,0 +1,12 @@
+'use strict';
+const { copyFileSync, mkdirSync, cpSync } = require('fs');
+const path = require('path');
+const root = path.join(__dirname, '..');
+const pdfjs = (...p) => path.join(root, 'node_modules', 'pdfjs-dist', ...p);
+const pub = (...p) => path.join(root, 'public', ...p);
+mkdirSync(pub('cmaps'), { recursive: true });
+mkdirSync(pub('standard_fonts'), { recursive: true });
+copyFileSync(pdfjs('build', 'pdf.worker.min.mjs'), pub('pdf.worker.min.mjs'));
+cpSync(pdfjs('cmaps'), pub('cmaps'), { recursive: true });
+cpSync(pdfjs('standard_fonts'), pub('standard_fonts'), { recursive: true });
+console.log('PDF.js assets copied to public/');

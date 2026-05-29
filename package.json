@@ -5,15 +5,28 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "docling": "docling_service/.venv/bin/uvicorn docling_service.server:app --port 8080 --reload",
+    "dev:full": "concurrently -n docling,next -c cyan,green \"npm run docling\" \"npm run dev\"",
+    "onlyoffice:start": "docker compose -f docker-compose.onlyoffice.yml up -d",
+    "onlyoffice:stop": "docker compose -f docker-compose.onlyoffice.yml down",
+    "postinstall": "node scripts/postinstall.cjs"
   },
   "dependencies": {
+    "diff": "^9.0.0",
+    "docx": "^9.6.1",
+    "mammoth": "^1.12.0",
     "next": "16.2.6",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "xlsx": "^0.18.5",
+    "pdfjs-dist": "5.4.296",
+    "sanitize-html": "^2.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "concurrently": "^9.2.1",
     "tailwindcss": "^4"
   }
 }

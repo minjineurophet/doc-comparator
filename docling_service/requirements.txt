@@ -1,0 +1,4 @@
+docling
+fastapi[standard]
+uvicorn[standard]
+python-multipart
