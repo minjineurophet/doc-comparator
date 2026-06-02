@@ -380,20 +380,28 @@ export default function DiffView() {
     }
   }, [id]);
 
-  // Auto-reparse: if stored markdown uses P-fallback (stale cache from old parser),
-  // re-fetch the parse result from the server using the stored document IDs.
+  // Auto-reparse / diff-remap: handle two stale-cache scenarios:
+  //   A) markdown still uses P-fallback → re-fetch parsed markdown from server
+  //   B) markdown already has real numbers but diffs still have P-numbers
+  //      (can happen if the page was visited before this fix was deployed)
   useEffect(() => {
     if (!comparison) return;
 
-    const needsReparse = (markdown, docId) => {
-      if (!markdown || !docId) return false;
+    const hasOnlyPNumbers = (markdown) => {
+      if (!markdown) return false;
       const clauses = extractClauses(markdown);
       return clauses.length > 0 && clauses.every(c => /^P\d+$/.test(c.number));
     };
 
-    const doc1Needs = needsReparse(comparison.document1Markdown, comparison.document1Id);
-    const doc2Needs = needsReparse(comparison.document2Markdown, comparison.document2Id);
-    if (!doc1Needs && !doc2Needs) return;
+    const diffsHavePNumbers =
+      comparison.diffs?.length > 0 &&
+      comparison.diffs.every(d => /^P\d+$/.test(d.clauseNumber));
+
+    const doc1NeedsReparse = hasOnlyPNumbers(comparison.document1Markdown) && !!comparison.document1Id;
+    const doc2NeedsReparse = hasOnlyPNumbers(comparison.document2Markdown) && !!comparison.document2Id;
+
+    // Nothing to do
+    if (!doc1NeedsReparse && !doc2NeedsReparse && !diffsHavePNumbers) return;
 
     const reparseDoc = async (docId) => {
       const res = await fetch(`/api/parse-document?documentId=${docId}`);
@@ -403,23 +411,20 @@ export default function DiffView() {
 
     (async () => {
       const [r1, r2] = await Promise.all([
-        doc1Needs ? reparseDoc(comparison.document1Id) : Promise.resolve(null),
-        doc2Needs ? reparseDoc(comparison.document2Id) : Promise.resolve(null),
+        doc1NeedsReparse ? reparseDoc(comparison.document1Id) : Promise.resolve(null),
+        doc2NeedsReparse ? reparseDoc(comparison.document2Id) : Promise.resolve(null),
       ]);
 
       const updates = {};
       if (r1?.markdown) updates.document1Markdown = r1.markdown;
       if (r2?.markdown) updates.document2Markdown = r2.markdown;
-      if (Object.keys(updates).length === 0) return;
 
       const updated = { ...comparison, ...updates };
 
       // Remap P-numbered diffs to real clause numbers so Diff 인덱스 and
       // viewer search both work with the freshly-parsed heading hierarchy.
-      const diffsHavePNumbers =
-        updated.diffs?.length > 0 &&
-        updated.diffs.every(d => /^P\d+$/.test(d.clauseNumber));
-
+      // This runs whether markdown was just re-fetched OR was already real-numbered
+      // (scenario B: markdown reparsed in a prior visit, diffs not yet remapped).
       if (diffsHavePNumbers) {
         const realClauses1 = extractClauses(updated.document1Markdown || '');
         const realClauses2 = extractClauses(updated.document2Markdown || '');
@@ -438,18 +443,21 @@ export default function DiffView() {
         });
         allReal.sort((a, b) => sortClauseNums(a.number, b.number));
 
-        updated.diffs = updated.diffs.map(d => {
-          // 1) Title match
-          const byTitle = titleToNum.get(d.title.toLowerCase().trim());
-          if (byTitle) return { ...d, clauseNumber: byTitle };
-          // 2) Positional: P1 → index 0, P2 → index 1, ...
-          const pIdx = parseInt(d.clauseNumber.replace('P', ''), 10) - 1;
-          const fallback = allReal[pIdx];
-          if (fallback) return { ...d, clauseNumber: fallback.number };
-          return d;
-        });
+        if (allReal.length > 0) {
+          updated.diffs = updated.diffs.map(d => {
+            // 1) Title match
+            const byTitle = titleToNum.get(d.title.toLowerCase().trim());
+            if (byTitle) return { ...d, clauseNumber: byTitle };
+            // 2) Positional: P1 → index 0, P2 → index 1, ...
+            const pIdx = parseInt(d.clauseNumber.replace('P', ''), 10) - 1;
+            const fallback = allReal[pIdx];
+            if (fallback) return { ...d, clauseNumber: fallback.number };
+            return d;
+          });
+        }
       }
 
+      if (Object.keys(updates).length === 0 && !diffsHavePNumbers) return;
       saveComparison(updated);
       setComparison(updated);
     })();
