@@ -46,8 +46,35 @@ function detectFormat(filename, mimeType) {
 
 async function parseWord(buffer) {
   const mammoth = (await import('mammoth')).default;
-  const result = await mammoth.extractRawText({ buffer });
-  return result.value;
+
+  // Use HTML output to preserve heading levels (h1/h2/h3...) that Word's
+  // auto-numbered outline styles strip from raw text extraction.
+  const { value: html } = await mammoth.convertToHtml({ buffer });
+
+  // Build numbered markdown from heading hierarchy.
+  const counters = [0, 0, 0, 0, 0, 0];
+  const lines = [];
+
+  // Split into heading and paragraph tokens.
+  const tokenRe = /<(h[1-6]|p)([^>]*)>([\s\S]*?)<\/(?:h[1-6]|p)>/g;
+  let match;
+  while ((match = tokenRe.exec(html)) !== null) {
+    const tag = match[1];
+    const inner = match[3].replace(/<[^>]+>/g, '').trim();
+    if (!inner) continue;
+
+    if (/^h[1-6]$/.test(tag)) {
+      const level = parseInt(tag[1]) - 1; // 0-indexed
+      counters[level]++;
+      for (let i = level + 1; i < counters.length; i++) counters[i] = 0;
+      const num = counters.slice(0, level + 1).join('.');
+      lines.push(`${'#'.repeat(level + 1)} ${num} ${inner}`);
+    } else {
+      lines.push(inner);
+    }
+  }
+
+  return lines.join('\n\n');
 }
 
 async function parseExcel(buffer) {
@@ -91,7 +118,8 @@ async function parseLegacy(file) {
   if (format === 'pdf')  text = await parsePdf(buffer);
   if (format === 'docx') text = await parseWord(buffer);
   if (format === 'xlsx') text = await parseExcel(buffer);
-  const markdown = textToMarkdown(text);
+  // parseWord already returns numbered markdown; other formats need conversion.
+  const markdown = format === 'docx' ? text : textToMarkdown(text);
   return { text, markdown, format, parser: 'legacy' };
 }
 
