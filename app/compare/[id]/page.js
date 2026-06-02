@@ -413,6 +413,43 @@ export default function DiffView() {
       if (Object.keys(updates).length === 0) return;
 
       const updated = { ...comparison, ...updates };
+
+      // Remap P-numbered diffs to real clause numbers so Diff 인덱스 and
+      // viewer search both work with the freshly-parsed heading hierarchy.
+      const diffsHavePNumbers =
+        updated.diffs?.length > 0 &&
+        updated.diffs.every(d => /^P\d+$/.test(d.clauseNumber));
+
+      if (diffsHavePNumbers) {
+        const realClauses1 = extractClauses(updated.document1Markdown || '');
+        const realClauses2 = extractClauses(updated.document2Markdown || '');
+
+        // title (lowercase) → real clause number
+        const titleToNum = new Map();
+        [...realClauses1, ...realClauses2].forEach(c => {
+          const key = c.title.toLowerCase().trim();
+          if (!titleToNum.has(key)) titleToNum.set(key, c.number);
+        });
+
+        // Merged, sorted real clause list for positional fallback
+        const allReal = [...realClauses1];
+        realClauses2.forEach(c => {
+          if (!allReal.some(r => r.number === c.number)) allReal.push(c);
+        });
+        allReal.sort((a, b) => sortClauseNums(a.number, b.number));
+
+        updated.diffs = updated.diffs.map(d => {
+          // 1) Title match
+          const byTitle = titleToNum.get(d.title.toLowerCase().trim());
+          if (byTitle) return { ...d, clauseNumber: byTitle };
+          // 2) Positional: P1 → index 0, P2 → index 1, ...
+          const pIdx = parseInt(d.clauseNumber.replace('P', ''), 10) - 1;
+          const fallback = allReal[pIdx];
+          if (fallback) return { ...d, clauseNumber: fallback.number };
+          return d;
+        });
+      }
+
       saveComparison(updated);
       setComparison(updated);
     })();
@@ -572,12 +609,14 @@ export default function DiffView() {
   const focusEmbeddedViewers = useCallback((num) => {
     if (mode !== 'viewer' || !comparison) return;
     const diff = comparison.diffs.find(d => d.clauseNumber === num);
-    if (!diff) return;
-    const tokens = buildViewerSearchTokens(diff);
+    // Fallback to viewClauses-derived target when diff not found (e.g. unchanged clause)
+    const searchTarget = diff || viewerSearchTargets.get(num);
+    if (!searchTarget) return;
+    const tokens = buildViewerSearchTokens(searchTarget);
     [comparison.document1Id, comparison.document2Id].filter(Boolean).forEach(docId => {
       viewerApisRef.current[docId]?.search(tokens);
     });
-  }, [comparison, mode]);
+  }, [comparison, mode, viewerSearchTargets]);
 
   const jumpToClause = useCallback((num) => {
     setSelectedClause(num);
