@@ -68,7 +68,7 @@ async function parsePdf(buffer) {
 }
 
 function textToMarkdown(text) {
-  const clauseRegex = /^(\d+(?:\.\d+){0,4})\s{1,8}([^\n]{2,})/;
+  const clauseRegex = /^(\d+(?:\.\d+){0,4})\.?\s{1,8}([^\n]{2,})/;
   return text
     .split('\n')
     .map(line => {
