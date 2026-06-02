@@ -380,6 +380,45 @@ export default function DiffView() {
     }
   }, [id]);
 
+  // Auto-reparse: if stored markdown uses P-fallback (stale cache from old parser),
+  // re-fetch the parse result from the server using the stored document IDs.
+  useEffect(() => {
+    if (!comparison) return;
+
+    const needsReparse = (markdown, docId) => {
+      if (!markdown || !docId) return false;
+      const clauses = extractClauses(markdown);
+      return clauses.length > 0 && clauses.every(c => /^P\d+$/.test(c.number));
+    };
+
+    const doc1Needs = needsReparse(comparison.document1Markdown, comparison.document1Id);
+    const doc2Needs = needsReparse(comparison.document2Markdown, comparison.document2Id);
+    if (!doc1Needs && !doc2Needs) return;
+
+    const reparseDoc = async (docId) => {
+      const res = await fetch(`/api/parse-document?documentId=${docId}`);
+      if (!res.ok) return null;
+      return res.json();
+    };
+
+    (async () => {
+      const [r1, r2] = await Promise.all([
+        doc1Needs ? reparseDoc(comparison.document1Id) : Promise.resolve(null),
+        doc2Needs ? reparseDoc(comparison.document2Id) : Promise.resolve(null),
+      ]);
+
+      const updates = {};
+      if (r1?.markdown) updates.document1Markdown = r1.markdown;
+      if (r2?.markdown) updates.document2Markdown = r2.markdown;
+      if (Object.keys(updates).length === 0) return;
+
+      const updated = { ...comparison, ...updates };
+      saveComparison(updated);
+      setComparison(updated);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comparison?.id]);
+
   useEffect(() => {
     latestComparisonRef.current = comparison;
   }, [comparison]);

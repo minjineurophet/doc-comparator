@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { getStoredDocument, getStoredDocumentPath } from '@/lib/documentStorage';
+import { readFile } from 'node:fs/promises';
 
 export const runtime = 'nodejs';
 
@@ -124,6 +126,40 @@ async function parseLegacy(file) {
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/parse-document?documentId=<id>
+ * Re-parses a previously uploaded document using the current parser logic.
+ * Used to refresh stale cached markdown (e.g. after parser improvements).
+ */
+export async function GET(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const documentId = searchParams.get('documentId');
+    if (!documentId) return NextResponse.json({ error: 'documentId required' }, { status: 400 });
+
+    const doc = await getStoredDocument(documentId);
+    if (!doc) return NextResponse.json({ error: '문서를 찾을 수 없습니다.' }, { status: 404 });
+
+    const diskPath = getStoredDocumentPath(doc);
+    const buffer = await readFile(diskPath);
+    const file = new File([buffer], doc.filename, { type: doc.mimeType });
+
+    // Try Docling first, then legacy
+    try {
+      const result = await parseWithDocling(file);
+      const text = result.text ?? markdownToPlainText(result.markdown ?? '');
+      return NextResponse.json({ ...result, text, parser: 'docling' });
+    } catch {
+      // fall through to legacy
+    }
+
+    const result = await parseLegacy(file);
+    return NextResponse.json(result);
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
 
 export async function POST(request) {
   try {
