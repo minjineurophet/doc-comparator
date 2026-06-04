@@ -1,0 +1,59 @@
+name: Build Windows App
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to upload assets to (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Desktop-Apps branch
+        uses: actions/checkout@v4
+        with:
+          ref: Desktop-Apps
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js (standalone)
+        run: npx next build
+        env:
+          NODE_ENV: production
+
+      - name: Copy static assets into standalone
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force public .next/standalone/public
+          New-Item -ItemType Directory -Force -Path .next/standalone/.next/static
+          Copy-Item -Recurse -Force .next/static/* .next/standalone/.next/static/
+
+      - name: Build Windows Electron app
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List dist files
+        shell: pwsh
+        run: Get-ChildItem dist -Recurse | Select-Object FullName, Length
+
+      - name: Upload installer to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          files: |
+            dist/*.exe
+            dist/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
