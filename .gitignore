@@ -17,8 +17,8 @@
 /.next/
 /out/
 
-# production
-/build
+# production (old CRA output — Next.js uses .next/, not /build)
+# /build
 
 # electron-builder output
 /dist/
