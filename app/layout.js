@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "62366 Doc Comparator",
+  title: "DocCompare",
   description: "IEC 62366 문서 버전 비교 및 변경 검색",
 };
 

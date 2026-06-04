@@ -1,8 +1,57 @@
 # 62366 Doc Comparator
 
 문서 비교와 ONLYOFFICE 원문 뷰어가 함께 들어 있는 Next.js 앱입니다.
+**Desktop-Apps 브랜치**에서는 Electron을 사용해 Mac(`.dmg`)과 Windows(`.exe`) 설치 파일로 빌드할 수 있습니다.
 
-## 실행
+## 데스크톱 앱 빌드 (Electron)
+
+> Mac 또는 Windows에서 설치해서 사용할 수 있는 응용 프로그램으로 패키징합니다.
+
+### 사전 요구사항
+
+- Node.js 18 이상
+- (Mac 배포용) Xcode Command Line Tools
+
+### 빌드
+
+```bash
+# 1. 의존성 설치
+npm install
+
+# 2. Next.js 빌드 → standalone 패키징 → 설치 파일 생성
+npm run electron:build
+```
+
+빌드 완료 후 `dist/` 폴더에 설치 파일이 생성됩니다:
+- **Mac**: `dist/Doc Comparator-{version}.dmg` (Universal Binary — Apple Silicon + Intel)
+- **Windows**: `dist/Doc Comparator Setup {version}.exe`
+
+### 개발 모드 (Electron)
+
+```bash
+# 터미널 1: Next.js 개발 서버 실행
+npm run dev
+
+# 터미널 2: Electron 창 열기 (Next.js dev server에 연결)
+npm run electron:dev
+```
+
+### 패키지 구조 (빌드 결과물)
+
+```
+설치된 앱
+├── electron/main.js        ← Electron 메인 프로세스
+├── electron/preload.js     ← 보안 preload
+└── resources/next-server/  ← Next.js standalone 서버 (번들)
+```
+
+업로드한 문서와 비교 결과물은 OS의 앱 데이터 폴더에 저장됩니다:
+- **Mac**: `~/Library/Application Support/Doc Comparator/`
+- **Windows**: `%APPDATA%\Doc Comparator\`
+
+---
+
+## 웹 앱으로 실행 (기존 방식)
 
 1. 의존성 설치
 

@@ -222,7 +222,11 @@ export default function PdfViewer({ documentId, registerApi }) {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err.message || 'PDF를 불러오지 못했습니다.');
+          const msg = err.message || '';
+          const is404 = msg.includes('404') || msg.toLowerCase().includes('not found');
+          setError(is404
+            ? '원본 문서 파일을 서버에서 찾을 수 없습니다. 서버가 재시작되었거나 파일이 삭제되었을 수 있습니다.'
+            : (msg || 'PDF를 불러오지 못했습니다.'));
           setLoading(false);
         }
       });

@@ -359,12 +359,12 @@ export default function DiffView() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [exporting, setExporting] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorContent, setEditorContent] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [viewerUnavailableMsg, setViewerUnavailableMsg] = useState('');
+  const [mounted, setMounted] = useState(false);
 
-  const exportMenuRef = useRef(null);
   const leftRef  = useRef(null);
   const rightRef = useRef(null);
   const isSyncing = useRef(false);
@@ -373,6 +373,7 @@ export default function DiffView() {
   const latestComparisonRef = useRef(null);
 
   useEffect(() => {
+    setMounted(true);
     const data = getComparison(id);
     if (data) {
       setComparison(data);
@@ -509,30 +510,6 @@ export default function DiffView() {
     }
   }, [flushPendingSave, mode]);
 
-  useEffect(() => {
-    if (!exportMenuOpen) return undefined;
-
-    const handlePointerDown = (event) => {
-      if (!exportMenuRef.current?.contains(event.target)) {
-        setExportMenuOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        setExportMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [exportMenuOpen]);
-
   const viewClauses = useMemo(
     () => (comparison ? buildViewClauses(comparison) : []),
     [comparison]
@@ -649,13 +626,63 @@ export default function DiffView() {
     document.body.removeChild(anchor);
   }, []);
 
+  const handleSwitchToViewer = useCallback(async () => {
+    if (!comparison?.document1Id || !comparison?.document2Id) return;
+    setViewerUnavailableMsg('');
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch(`/api/documents/${comparison.document1Id}/meta`),
+        fetch(`/api/documents/${comparison.document2Id}/meta`),
+      ]);
+
+      const missing1 = r1.status === 404;
+      const missing2 = r2.status === 404;
+      const serverErr = (!r1.ok && !missing1) || (!r2.ok && !missing2);
+
+      if (missing1 || missing2) {
+        const which = missing1 && missing2 ? '두 문서 모두' : missing1 ? '문서 1이' : '문서 2가';
+        setViewerUnavailableMsg(
+          `${which} 서버에서 찾을 수 없습니다. 서버가 재시작되었거나 파일이 삭제되었을 수 있습니다. 새 비교를 생성해 주세요.`
+        );
+        return;
+      }
+      if (serverErr) {
+        setViewerUnavailableMsg('서버 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+        return;
+      }
+      setMode('viewer');
+    } catch {
+      setViewerUnavailableMsg('서버 상태를 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+    }
+  }, [comparison]);
+
   const handleToggleEditor = useCallback(() => {
     setMode('text');
     setIsEditorOpen((open) => {
+      const willOpen = !open;
       if (open) {
+        // Closing: flush pending edits
         flushPendingSave();
+        return willOpen;
       }
-      return !open;
+
+      // Opening: initialize editor draft. Prefer any saved/edited clause content,
+      // fall back to the original clause content from 문서2, and finally to the
+      // full document2 markdown when no clause content exists.
+      if (willOpen) {
+        if (selectedViewClause && canEditClause(selectedViewClause)) {
+          const initial = getEditedAfterContent(
+            comparison,
+            selectedViewClause.number,
+            selectedViewClause.originalRightContent ?? ''
+          ) || (comparison?.document2Markdown ?? '');
+          setEditorContent(initial);
+        } else if (comparison?.document2Markdown) {
+          setEditorContent(comparison.document2Markdown);
+        }
+      }
+
+      return willOpen;
     });
   }, [flushPendingSave]);
 
@@ -699,7 +726,6 @@ export default function DiffView() {
 
   const handleExportReport = useCallback(async () => {
     flushPendingSave();
-    setExportMenuOpen(false);
     setExporting(true);
     try {
       await exportComparison(latestComparisonRef.current ?? comparison, 'docx');
@@ -712,7 +738,6 @@ export default function DiffView() {
 
   const handleExportEdited = useCallback(async () => {
     flushPendingSave();
-    setExportMenuOpen(false);
     setExporting(true);
     try {
       await exportEditedDocument(latestComparisonRef.current ?? comparison, comparison.name || 'comparison');
@@ -722,6 +747,14 @@ export default function DiffView() {
       setExporting(false);
     }
   }, [comparison, flushPendingSave]);
+
+  if (!mounted) {
+    return (
+      <div id="compare-loading" className="flex items-center justify-center h-screen text-sm text-gray-400">
+        불러오는 중...
+      </div>
+    );
+  }
 
   if (!comparison) {
     return (
@@ -751,7 +784,14 @@ export default function DiffView() {
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setMode(item.key)}
+                onClick={() => {
+                  if (item.key === 'viewer') {
+                    handleSwitchToViewer();
+                  } else {
+                    setMode(item.key);
+                    setViewerUnavailableMsg('');
+                  }
+                }}
                 disabled={item.key === 'viewer' && !hasViewerDocs}
                 className={`view-mode-btn rounded-md px-2.5 py-1 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40
                   ${mode === item.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
@@ -773,68 +813,20 @@ export default function DiffView() {
           >
             {isEditorOpen ? 'Edit 닫기' : 'Edit 열기'}
           </button>
-          <div className="relative ml-1" ref={exportMenuRef}>
+          <div className="relative ml-1">
             <button
               id="btn-export"
               type="button"
-              onClick={() => setExportMenuOpen(open => !open)}
-              disabled={exporting}
+              onClick={handleExportEdited}
+              disabled={exporting || !hasEditableDocument}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
               {exporting
                 ? <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
                 : <span>📤</span>
               }
-              {exporting ? '생성 중...' : '내보내기'}
-              {!exporting && <span className="text-[10px]">▾</span>}
+              {exporting ? '생성 중...' : '편집본 다운로드'}
             </button>
-
-            {exportMenuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    downloadOriginalDocument(comparison.document1Id, comparison.document1Filename);
-                    setExportMenuOpen(false);
-                  }}
-                  disabled={!comparison.document1Id}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
-                >
-                  <span>문서 1 원본 다운로드</span>
-                  <span className="text-[10px] text-gray-400">{FORMAT_META[comparison.document1Format]?.label ?? ''}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    downloadOriginalDocument(comparison.document2Id, comparison.document2Filename);
-                    setExportMenuOpen(false);
-                  }}
-                  disabled={!comparison.document2Id}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
-                >
-                  <span>문서 2 원본 다운로드</span>
-                  <span className="text-[10px] text-gray-400">{FORMAT_META[comparison.document2Format]?.label ?? ''}</span>
-                </button>
-                <div className="my-1 border-t border-gray-100" />
-                <button
-                  type="button"
-                  onClick={handleExportReport}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50"
-                >
-                  <span>변경 리포트 다운로드</span>
-                  <span className="text-[10px] text-gray-400">DOCX</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportEdited}
-                  disabled={!hasEditableDocument}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-white"
-                >
-                  <span>편집본 Word 다운로드</span>
-                  <span className="text-[10px] text-gray-400">DOCX</span>
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </header>
@@ -878,6 +870,12 @@ export default function DiffView() {
       {mode === 'viewer' && (
         <div id="hint-viewer-mode" className="flex-shrink-0 border-b border-gray-100 bg-indigo-50/60 px-4 py-1.5 text-[11px] text-indigo-700">
           사이드바 항목을 클릭하면 좌/우 뷰어에서 해당 조항 제목으로 위치 검색을 시도합니다.
+        </div>
+      )}
+      {viewerUnavailableMsg && (
+        <div id="viewer-unavailable-banner" className="flex-shrink-0 border-b border-yellow-200 bg-yellow-50 px-4 py-2 text-[11px] text-yellow-800 flex items-center justify-between gap-2">
+          <span>⚠️ {viewerUnavailableMsg}</span>
+          <button type="button" onClick={() => setViewerUnavailableMsg('')} className="flex-shrink-0 text-yellow-600 hover:text-yellow-900 font-bold leading-none">×</button>
         </div>
       )}
 

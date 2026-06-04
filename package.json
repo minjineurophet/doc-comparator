@@ -1,7 +1,8 @@
 {
   "name": "doc-comparator",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +11,10 @@
     "dev:full": "concurrently -n docling,next -c cyan,green \"npm run docling\" \"npm run dev\"",
     "onlyoffice:start": "docker compose -f docker-compose.onlyoffice.yml up -d",
     "onlyoffice:stop": "docker compose -f docker-compose.onlyoffice.yml down",
-    "postinstall": "node scripts/postinstall.cjs"
+    "postinstall": "node scripts/postinstall.cjs",
+    "electron:dev": "electron .",
+    "electron:build": "node scripts/build-electron.cjs",
+    "electron:pack": "node scripts/build-electron.cjs --dir"
   },
   "dependencies": {
     "diff": "^9.0.0",
@@ -27,6 +31,43 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "concurrently": "^9.2.1",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0",
     "tailwindcss": "^4"
+  },
+  "build": {
+    "appId": "com.minjineurophet.doc-comparator",
+    "productName": "Doc Comparator",
+    "copyright": "Copyright © 2025",
+    "files": [
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "next-server",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] }
+      ]
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/favicon.ico",
+      "uninstallerIcon": "public/favicon.ico"
+    },
+    "dmg": {
+      "title": "${productName} ${version}"
+    }
   }
 }

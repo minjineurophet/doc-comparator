@@ -61,7 +61,12 @@ export default function DocxViewer({ documentId, registerApi }) {
 
     fetch(`/api/documents/${documentId}/html`)
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const msg = res.status === 404
+            ? '원본 문서 파일을 서버에서 찾을 수 없습니다. 서버가 재시작되었거나 파일이 삭제되었을 수 있습니다.'
+            : `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
         return res.json();
       })
       .then((data) => {
