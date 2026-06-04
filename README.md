@@ -1,4 +1,4 @@
-# 62366 Doc Comparator
+# Doc Comparator
 
 문서 비교와 ONLYOFFICE 원문 뷰어가 함께 들어 있는 Next.js 앱입니다.
 **Desktop-Apps 브랜치**에서는 Electron을 사용해 Mac(`.dmg`)과 Windows(`.exe`) 설치 파일로 빌드할 수 있습니다.
