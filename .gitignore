@@ -1,0 +1,6 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+public/pdf.worker.min.mjs
