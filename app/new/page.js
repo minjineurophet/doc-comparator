@@ -23,15 +23,43 @@ function detectFormat(file) {
 
 function UploadZone({ label, sublabel, file, onSelect }) {
   const inputRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const format = detectFormat(file);
   const meta = format ? FORMAT_META[format] : null;
 
+  const onDragEnter = (e) => {
+    e.preventDefault();
+    dragDepth.current++;
+    setDragging(true);
+  };
+  const onDragLeave = (e) => {
+    e.preventDefault();
+    dragDepth.current--;
+    if (dragDepth.current === 0) setDragging(false);
+  };
+  const onDrop = (e) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) onSelect(f);
+  };
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => inputRef.current?.click()}
+      onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={onDrop}
       className={`upload-zone w-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 transition-colors cursor-pointer
-        ${file
+        ${dragging
+          ? 'border-blue-500 bg-blue-100'
+          : file
           ? 'border-blue-400 bg-blue-50'
           : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50/60'
         }`}
@@ -43,20 +71,29 @@ function UploadZone({ label, sublabel, file, onSelect }) {
         className="upload-zone-input hidden"
         onChange={e => onSelect(e.target.files?.[0] ?? null)}
       />
-      <span className="upload-zone-icon text-3xl mb-3">{file ? (meta?.icon ?? '✅') : '📁'}</span>
-      <span className="upload-zone-label text-sm font-semibold text-gray-700">{label}</span>
-      <span className="upload-zone-sublabel text-xs text-gray-400 mt-1">{sublabel}</span>
-      {file && meta && (
-        <span className={`upload-zone-format-badge text-[11px] font-semibold mt-2 px-2 py-0.5 rounded border ${meta.color}`}>
-          {meta.label}
-        </span>
+      {dragging ? (
+        <>
+          <span className="text-3xl mb-3">⬇️</span>
+          <span className="text-sm font-semibold text-blue-600">여기에 놓으세요</span>
+        </>
+      ) : (
+        <>
+          <span className="upload-zone-icon text-3xl mb-3">{file ? (meta?.icon ?? '✅') : '📁'}</span>
+          <span className="upload-zone-label text-sm font-semibold text-gray-700">{label}</span>
+          <span className="upload-zone-sublabel text-xs text-gray-400 mt-1">{sublabel}</span>
+          {file && meta && (
+            <span className={`upload-zone-format-badge text-[11px] font-semibold mt-2 px-2 py-0.5 rounded border ${meta.color}`}>
+              {meta.label}
+            </span>
+          )}
+          {file && (
+            <span className="upload-zone-filename text-xs text-blue-600 font-medium mt-1 truncate max-w-[200px]">
+              {file.name}
+            </span>
+          )}
+        </>
       )}
-      {file && (
-        <span className="upload-zone-filename text-xs text-blue-600 font-medium mt-1 truncate max-w-[200px]">
-          {file.name}
-        </span>
-      )}
-    </button>
+    </div>
   );
 }
 
