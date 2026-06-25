@@ -3,7 +3,14 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { getComparison } from '../../lib/storage';
+import { getComparison, updateGapSummary } from '../../lib/storage';
+import {
+  generateGapSummary,
+  isProxyConfigured,
+  downloadSummaryMarkdown,
+  GAP_TYPES,
+  GAP_TYPE_META,
+} from '../../lib/gapAnalysis';
 
 const STATUS = {
   added:    { label: '추가', dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -88,6 +95,144 @@ function DiffView({ clause }) {
   );
 }
 
+const TYPE_BADGE = {
+  red:     'bg-red-50 text-red-700 border-red-200',
+  amber:   'bg-amber-50 text-amber-700 border-amber-200',
+  emerald: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  gray:    'bg-gray-50 text-gray-600 border-gray-200',
+  blue:    'bg-blue-50 text-blue-700 border-blue-200',
+};
+const PRIORITY_BADGE = {
+  상: 'bg-red-100 text-red-700',
+  중: 'bg-amber-100 text-amber-700',
+  하: 'bg-gray-100 text-gray-500',
+};
+
+function typeBadge(type) {
+  return TYPE_BADGE[GAP_TYPE_META[type]?.color] || TYPE_BADGE.gray;
+}
+
+function GapPanel({ summary, busy, error, onGenerate, onDownload, onJump }) {
+  if (!isProxyConfigured()) {
+    return (
+      <div className="bg-white border-b border-gray-200 px-5 py-3 flex-shrink-0">
+        <p className="text-xs text-gray-400">
+          ⓘ 갭 분석 요약은 사내 Claude 프록시 설정 후 사용할 수 있습니다 (<span className="font-mono">NEXT_PUBLIC_GAP_PROXY_URL</span>).
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <section className="bg-white border-b border-gray-200 flex-shrink-0">
+      <div className="px-5 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-bold text-gray-800">🧠 갭 분석 요약</span>
+          {summary?.oneLine && (
+            <span className="text-xs text-gray-500 truncate">{summary.oneLine}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {summary && (
+            <button
+              onClick={onDownload}
+              className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-200 transition-colors"
+            >
+              MD 다운로드
+            </button>
+          )}
+          <button
+            onClick={onGenerate}
+            disabled={busy}
+            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {busy ? '분석 중…' : summary ? '재생성' : '요약 생성'}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="px-5 pb-3">
+          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">⚠ {error}</p>
+        </div>
+      )}
+
+      {summary && !busy && (
+        <div className="px-5 pb-4 max-h-[38vh] overflow-y-auto">
+          {/* 한눈에 보기 */}
+          {summary.overview?.length > 0 && (
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="text-gray-400 text-left border-b border-gray-100">
+                    <th className="py-1.5 pr-3 font-semibold">조항</th>
+                    <th className="py-1.5 pr-3 font-semibold">핵심 변경</th>
+                    <th className="py-1.5 pr-3 font-semibold">유형</th>
+                    <th className="py-1.5 font-semibold">우선</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.overview.map((o, i) => (
+                    <tr
+                      key={i}
+                      onClick={() => onJump(o.clauseId)}
+                      className="border-b border-gray-50 hover:bg-blue-50/50 cursor-pointer align-top"
+                    >
+                      <td className="py-1.5 pr-3 font-mono text-blue-600 whitespace-nowrap">{o.clauseId}</td>
+                      <td className="py-1.5 pr-3 text-gray-700">
+                        <span className="text-gray-400">{o.section}</span>
+                        {o.section ? ' — ' : ''}{o.change}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        <span className={`px-1.5 py-0.5 rounded border font-semibold ${typeBadge(o.type)}`}>{o.type}</span>
+                      </td>
+                      <td className="py-1.5">
+                        <span className={`px-1.5 py-0.5 rounded font-semibold ${PRIORITY_BADGE[o.priority] || ''}`}>{o.priority}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 유형별 그룹 */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+            {GAP_TYPES.filter((t) => summary.groups?.[t]?.length).map((t) => (
+              <div key={t} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                <p className="text-xs font-bold mb-1.5">
+                  <span className={`px-1.5 py-0.5 rounded border ${typeBadge(t)}`}>{t}</span>
+                  <span className="ml-1 text-gray-400">({summary.groups[t].length})</span>
+                </p>
+                <ul className="space-y-1">
+                  {summary.groups[t].map((it, i) => (
+                    <li key={i} className="text-xs text-gray-600 leading-relaxed">
+                      <button onClick={() => onJump(it.clauseId)} className="font-mono text-blue-600 hover:underline">[{it.clauseId}]</button>{' '}
+                      {it.summary}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {/* 의사결정 필요 */}
+          {summary.decisions?.length > 0 && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+              <p className="text-xs font-bold text-blue-700 mb-1.5">의사결정 필요</p>
+              <ul className="space-y-1">
+                {summary.decisions.map((d, i) => (
+                  <li key={i} className="text-xs text-gray-700 leading-relaxed">• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CompareContent() {
   const searchParams = useSearchParams();
   const id = searchParams.get('id');
@@ -96,12 +241,43 @@ function CompareContent() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
+  // 갭 분석 요약 상태
+  const [gap, setGap] = useState(null);
+  const [gapBusy, setGapBusy] = useState(false);
+  const [gapError, setGapError] = useState(null);
+
   useEffect(() => {
     if (!id) return;
     const data = getComparison(id);
     setCmp(data);
     if (data?.diffs?.length) setSelected(data.diffs[0]);
+    setGap(data?.gapSummary || null);
+    setGapError(null);
   }, [id]);
+
+  const handleGenerateGap = async () => {
+    if (!cmp) return;
+    setGapBusy(true);
+    setGapError(null);
+    try {
+      const summary = await generateGapSummary(cmp);
+      setGap(summary);
+      updateGapSummary(id, summary);
+    } catch (e) {
+      setGapError(e.message);
+    } finally {
+      setGapBusy(false);
+    }
+  };
+
+  const jumpToClause = (clauseId) => {
+    if (!cmp || !clauseId) return;
+    const target = cmp.diffs.find((d) => d.id === clauseId);
+    if (!target) return;
+    setFilter('all');
+    setSearch('');
+    setSelected(target);
+  };
 
   const filtered = useMemo(() => {
     if (!cmp) return [];
@@ -162,6 +338,15 @@ function CompareContent() {
           </div>
         </div>
       </header>
+
+      <GapPanel
+        summary={gap}
+        busy={gapBusy}
+        error={gapError}
+        onGenerate={handleGenerateGap}
+        onDownload={() => downloadSummaryMarkdown(gap, cmp)}
+        onJump={jumpToClause}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         <aside className="w-64 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
