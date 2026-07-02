@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { extractClauses, compareClauses } from '@/lib/diffUtils';
@@ -97,6 +97,74 @@ function UploadZone({ label, sublabel, file, onSelect }) {
   );
 }
 
+// Full-page drag overlay — appears when a file is dragged anywhere onto the window.
+// Splits the screen into 문서 1 (left) / 문서 2 (right) drop targets.
+function DragOverlay({ onDropDoc1, onDropDoc2, doc1File, doc2File, onClose }) {
+  const [target, setTarget] = useState(null); // 'doc1' | 'doc2'
+
+  const makeZoneProps = (side, onDrop) => ({
+    onDragEnter: (e) => { e.preventDefault(); setTarget(side); },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setTarget(null); },
+    onDragOver: (e) => e.preventDefault(),
+    onDrop: (e) => {
+      e.preventDefault();
+      const f = e.dataTransfer.files[0];
+      if (f) onDrop(f);
+      onClose();
+    },
+  });
+
+  return (
+    <div
+      id="drag-overlay"
+      className="fixed inset-0 z-50 flex"
+      style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(4px)' }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => e.preventDefault()}
+    >
+      <div
+        {...makeZoneProps('doc1', onDropDoc1)}
+        className={`flex-1 flex flex-col items-center justify-center gap-4 transition-all duration-150 ${target === 'doc1' ? 'bg-red-500/30' : 'bg-white/5'}`}
+      >
+        <div className={`w-20 h-20 rounded-2xl flex items-center justify-center text-4xl transition-all duration-150 ${target === 'doc1' ? 'bg-red-400 scale-110' : 'bg-white/20'}`}>
+          {doc1File ? (FORMAT_META[detectFormat(doc1File)]?.icon ?? '📄') : '📄'}
+        </div>
+        <div className="text-center">
+          <p className="text-white text-lg font-bold mb-1">문서 1</p>
+          {doc1File
+            ? <p className="text-red-200 text-xs">{doc1File.name} (교체됨)</p>
+            : <p className="text-white/60 text-xs">파일을 이쪽에 놓으세요</p>}
+        </div>
+      </div>
+
+      <div className="w-px bg-white/20 my-16" />
+
+      <div
+        {...makeZoneProps('doc2', onDropDoc2)}
+        className={`flex-1 flex flex-col items-center justify-center gap-4 transition-all duration-150 ${target === 'doc2' ? 'bg-green-500/30' : 'bg-white/5'}`}
+      >
+        <div className={`w-20 h-20 rounded-2xl flex items-center justify-center text-4xl transition-all duration-150 ${target === 'doc2' ? 'bg-green-400 scale-110' : 'bg-white/20'}`}>
+          {doc2File ? (FORMAT_META[detectFormat(doc2File)]?.icon ?? '📄') : '📄'}
+        </div>
+        <div className="text-center">
+          <p className="text-white text-lg font-bold mb-1">문서 2</p>
+          {doc2File
+            ? <p className="text-green-200 text-xs">{doc2File.name} (교체됨)</p>
+            : <p className="text-white/60 text-xs">파일을 이쪽에 놓으세요</p>}
+        </div>
+      </div>
+
+      <button
+        className="absolute top-4 right-4 text-white/50 hover:text-white text-sm"
+        onClick={onClose}
+        onDragOver={(e) => e.stopPropagation()}
+      >
+        ESC로 닫기
+      </button>
+    </div>
+  );
+}
+
 async function parseDocument(file) {
   const form = new FormData();
   form.append('file', file);
@@ -141,9 +209,42 @@ export default function NewComparison() {
   const [step, setStep] = useState('idle');
   const [stepFmt, setStepFmt] = useState('');
   const [error, setError] = useState('');
+  const [pageOverlay, setPageOverlay] = useState(false);
+  const dragDepth = useRef(0);
 
   const isProcessing = step !== 'idle' && step !== 'error';
   const canStart = !!document1File && !!document2File && !isProcessing;
+
+  // Full-page drag detection → show split overlay when a file enters the window.
+  useEffect(() => {
+    const onEnter = (e) => {
+      if (!e.dataTransfer?.types?.includes('Files')) return;
+      dragDepth.current++;
+      setPageOverlay(true);
+    };
+    const onLeave = () => {
+      dragDepth.current--;
+      if (dragDepth.current <= 0) { dragDepth.current = 0; setPageOverlay(false); }
+    };
+    const onDrop = () => { dragDepth.current = 0; setPageOverlay(false); };
+    const onOver = (e) => e.preventDefault();
+    const onKey = (e) => { if (e.key === 'Escape') { dragDepth.current = 0; setPageOverlay(false); } };
+
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  const closeOverlay = useCallback(() => { dragDepth.current = 0; setPageOverlay(false); }, []);
 
   const currentLabel = STEPS.find(s => s.key === step)?.label?.(stepFmt) ?? null;
 
@@ -209,6 +310,16 @@ export default function NewComparison() {
 
   return (
     <div id="page-new" className="min-h-screen bg-gray-50">
+      {pageOverlay && !isProcessing && (
+        <DragOverlay
+          onDropDoc1={setDocument1File}
+          onDropDoc2={setDocument2File}
+          doc1File={document1File}
+          doc2File={document2File}
+          onClose={closeOverlay}
+        />
+      )}
+
       <header id="header-new" className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <Link id="link-back-home" href="/" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">←</Link>
