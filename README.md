@@ -23,8 +23,26 @@ npm run electron:build
 ```
 
 빌드 완료 후 `dist/` 폴더에 설치 파일이 생성됩니다:
-- **Mac**: `dist/Doc Comparator-{version}.dmg` (Universal Binary — Apple Silicon + Intel)
+- **Mac**: `dist/Doc Comparator-{version}-arm64.dmg` (Apple Silicon 전용)
 - **Windows**: `dist/Doc Comparator Setup {version}.exe`
+
+### ⚠️ macOS 최초 실행 (중요)
+
+이 앱은 Apple Developer 인증서로 서명·공증(notarize)되지 않은 **사내 배포용 ad-hoc 서명** 앱입니다.
+Apple Silicon(macOS)은 유효한 서명이 없으면 실행 자체를 차단하므로, 빌드 시 electron-builder가
+자동으로 **ad-hoc 서명**을 적용합니다(`scripts/afterPack.cjs`).
+
+다만 인터넷에서 다운로드한 `.dmg`는 macOS가 격리(quarantine) 속성을 붙이기 때문에, **최초 1회**
+아래 중 하나로 격리를 해제해야 실행됩니다:
+
+- **방법 1 (권장)**: 앱을 `Applications`로 옮긴 뒤 **우클릭 → 열기 → "열기"** 클릭
+- **방법 2 (터미널)**: 격리 속성 제거
+  ```bash
+  xattr -cr "/Applications/Doc Comparator.app"
+  ```
+
+> "손상되었기 때문에 열 수 없습니다" 오류가 뜨면 위 방법 2를 실행하세요.
+> (경고 없이 실행하려면 Apple Developer ID 서명 + 공증이 필요합니다.)
 
 ### 개발 모드 (Electron)
 

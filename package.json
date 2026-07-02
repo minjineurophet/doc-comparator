@@ -1,6 +1,6 @@
 {
   "name": "doc-comparator",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -39,6 +39,7 @@
     "appId": "com.minjineurophet.doc-comparator",
     "productName": "Doc Comparator",
     "copyright": "Copyright © 2025",
+    "afterPack": "scripts/afterPack.cjs",
     "files": [
       "electron/**/*"
     ],
@@ -51,6 +52,8 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "identity": null,
+      "gatekeeperAssess": false,
       "target": [
         { "target": "dmg", "arch": ["arm64"] },
         { "target": "zip", "arch": ["arm64"] }
