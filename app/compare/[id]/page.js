@@ -7,6 +7,7 @@ import { diffWords } from 'diff';
 import { applyClauseEdit, getClauseEdit, getComparison, saveComparison } from '@/lib/storage';
 import { exportComparison, exportEditedDocument } from '@/lib/exportDoc';
 import { extractClauses } from '@/lib/diffUtils';
+import { requestGapSummary, downloadSummaryMarkdown, GAP_TYPES, GAP_TYPE_META } from '@/lib/gapAnalysis';
 
 import DocumentViewer from '@/components/DocumentViewer';
 
@@ -348,6 +349,122 @@ function EmbeddedViewerPane({ documentId, fileType, filename, accentClassName, l
   );
 }
 
+// ── Gap analysis summary panel ──────────────────────────────────────────────
+
+const GAP_TYPE_BADGE = {
+  red:    'bg-red-50 text-red-700 border-red-200',
+  amber:  'bg-amber-50 text-amber-700 border-amber-200',
+  green:  'bg-green-50 text-green-700 border-green-200',
+  gray:   'bg-gray-50 text-gray-600 border-gray-200',
+  blue:   'bg-blue-50 text-blue-700 border-blue-200',
+};
+const GAP_PRIORITY_BADGE = {
+  상: 'bg-red-100 text-red-700',
+  중: 'bg-amber-100 text-amber-700',
+  하: 'bg-gray-100 text-gray-500',
+};
+function gapTypeBadge(type) {
+  return GAP_TYPE_BADGE[GAP_TYPE_META[type]?.color] || GAP_TYPE_BADGE.gray;
+}
+
+function GapAnalysisPanel({ summary, busy, error, onGenerate, onDownload, onJump, onClose }) {
+  return (
+    <div id="gap-analysis-panel" className="flex-shrink-0 border-b border-gray-200 bg-white">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-bold text-gray-800">🧠 갭 분석 요약</span>
+          {summary?.oneLine && <span className="text-xs text-gray-500 truncate">{summary.oneLine}</span>}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {summary && (
+            <button
+              type="button"
+              onClick={onDownload}
+              className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-200 transition-colors"
+            >
+              MD 다운로드
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={busy}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {busy ? 'LLM 분석 중…' : summary ? '재생성' : '요약 생성'}
+          </button>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700 text-sm leading-none px-1" aria-label="닫기">×</button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="px-4 pb-2.5">
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">⚠ {error}</p>
+        </div>
+      )}
+
+      {summary && !busy && (
+        <div className="px-4 pb-3 max-h-[38vh] overflow-y-auto">
+          {summary.overview?.length > 0 && (
+            <div className="overflow-x-auto mb-3">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="text-left text-gray-400 border-b border-gray-100">
+                    <th className="py-1.5 pr-3 font-semibold">조항</th>
+                    <th className="py-1.5 pr-3 font-semibold">핵심 변경</th>
+                    <th className="py-1.5 pr-3 font-semibold">유형</th>
+                    <th className="py-1.5 font-semibold">우선</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.overview.map((o, i) => (
+                    <tr key={i} onClick={() => onJump(o.clauseId)} className="border-b border-gray-50 hover:bg-blue-50/50 cursor-pointer align-top">
+                      <td className="py-1.5 pr-3 font-mono text-blue-600 whitespace-nowrap">{o.clauseId}</td>
+                      <td className="py-1.5 pr-3 text-gray-700"><span className="text-gray-400">{o.section}</span>{o.section ? ' — ' : ''}{o.change}</td>
+                      <td className="py-1.5 pr-3"><span className={`px-1.5 py-0.5 rounded border font-semibold ${gapTypeBadge(o.type)}`}>{o.type}</span></td>
+                      <td className="py-1.5"><span className={`px-1.5 py-0.5 rounded font-semibold ${GAP_PRIORITY_BADGE[o.priority] || ''}`}>{o.priority}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+            {GAP_TYPES.filter((t) => summary.groups?.[t]?.length).map((t) => (
+              <div key={t} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                <p className="mb-1.5 text-xs font-bold">
+                  <span className={`px-1.5 py-0.5 rounded border ${gapTypeBadge(t)}`}>{t}</span>
+                  <span className="ml-1 text-gray-400">({summary.groups[t].length})</span>
+                </p>
+                <ul className="space-y-1">
+                  {summary.groups[t].map((it, i) => (
+                    <li key={i} className="text-xs leading-relaxed text-gray-600">
+                      <button type="button" onClick={() => onJump(it.clauseId)} className="font-mono text-blue-600 hover:underline">[{it.clauseId}]</button>{' '}
+                      {it.summary}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {summary.decisions?.length > 0 && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+              <p className="mb-1.5 text-xs font-bold text-blue-700">의사결정 필요</p>
+              <ul className="space-y-1">
+                {summary.decisions.map((d, i) => (
+                  <li key={i} className="text-xs leading-relaxed text-gray-700">• {d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DiffView() {
@@ -365,6 +482,12 @@ export default function DiffView() {
   const [viewerUnavailableMsg, setViewerUnavailableMsg] = useState('');
   const [mounted, setMounted] = useState(false);
 
+  // Gap analysis summary
+  const [gapOpen, setGapOpen] = useState(false);
+  const [gap, setGap] = useState(null);
+  const [gapBusy, setGapBusy] = useState(false);
+  const [gapError, setGapError] = useState(null);
+
   const leftRef  = useRef(null);
   const rightRef = useRef(null);
   const isSyncing = useRef(false);
@@ -378,6 +501,7 @@ export default function DiffView() {
     if (data) {
       setComparison(data);
       if (data.diffs?.length > 0) setSelectedClause(data.diffs[0].clauseNumber);
+      setGap(data.gapSummary || null);
     }
   }, [id]);
 
@@ -748,6 +872,33 @@ export default function DiffView() {
     }
   }, [comparison, flushPendingSave]);
 
+  const handleGenerateGap = useCallback(async () => {
+    const cmp = latestComparisonRef.current ?? comparison;
+    if (!cmp) return;
+    setGapOpen(true);
+    setGapBusy(true);
+    setGapError(null);
+    try {
+      const summary = await requestGapSummary(cmp);
+      setGap(summary);
+      const updated = { ...cmp, gapSummary: summary };
+      saveComparison(updated);
+      setComparison(updated);
+    } catch (e) {
+      setGapError(
+        e.code === 'NOT_CONFIGURED'
+          ? '갭 분석 LLM이 설정되지 않았습니다. 서버에 GAP_PROXY_URL 또는 ANTHROPIC_API_KEY를 설정하세요.'
+          : e.message
+      );
+    } finally {
+      setGapBusy(false);
+    }
+  }, [comparison]);
+
+  const handleDownloadGap = useCallback(() => {
+    if (gap) downloadSummaryMarkdown(gap, latestComparisonRef.current ?? comparison);
+  }, [gap, comparison]);
+
   if (!mounted) {
     return (
       <div id="compare-loading" className="flex items-center justify-center h-screen text-sm text-gray-400">
@@ -866,7 +1017,29 @@ export default function DiffView() {
           )}
         </div>
 
+        {/* Gap analysis toggle */}
+        <button
+          id="btn-toggle-gap"
+          type="button"
+          onClick={() => (gap ? setGapOpen((o) => !o) : handleGenerateGap())}
+          className={`ml-auto flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors
+            ${gapOpen ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
+        >
+          🧠 갭 분석 요약
+        </button>
       </div>
+
+      {gapOpen && (
+        <GapAnalysisPanel
+          summary={gap}
+          busy={gapBusy}
+          error={gapError}
+          onGenerate={handleGenerateGap}
+          onDownload={handleDownloadGap}
+          onJump={jumpToClause}
+          onClose={() => setGapOpen(false)}
+        />
+      )}
       {mode === 'viewer' && (
         <div id="hint-viewer-mode" className="flex-shrink-0 border-b border-gray-100 bg-indigo-50/60 px-4 py-1.5 text-[11px] text-indigo-700">
           사이드바 항목을 클릭하면 좌/우 뷰어에서 해당 조항 제목으로 위치 검색을 시도합니다.
