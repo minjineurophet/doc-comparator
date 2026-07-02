@@ -32,16 +32,17 @@ npm run electron:build
 Apple Silicon(macOS)은 유효한 서명이 없으면 실행 자체를 차단하므로, 빌드 시 electron-builder가
 자동으로 **ad-hoc 서명**을 적용합니다(`scripts/afterPack.cjs`).
 
-다만 인터넷에서 다운로드한 `.dmg`는 macOS가 격리(quarantine) 속성을 붙이기 때문에, **최초 1회**
-아래 중 하나로 격리를 해제해야 실행됩니다:
+다만 인터넷에서 다운로드한 `.dmg`는 macOS가 격리(quarantine) 속성을 붙이기 때문에, 첫 실행 시
+**"'Doc Comparator'은(는) 손상되었기 때문에 열 수 없습니다"** 경고가 뜹니다. **최초 1회** 아래 명령으로
+격리 속성을 제거하면 정상 실행됩니다:
 
-- **방법 1 (권장)**: 앱을 `Applications`로 옮긴 뒤 **우클릭 → 열기 → "열기"** 클릭
-- **방법 2 (터미널)**: 격리 속성 제거
-  ```bash
-  xattr -cr "/Applications/Doc Comparator.app"
-  ```
+```bash
+# 앱을 Applications(또는 원하는 위치)로 옮긴 뒤 실행
+xattr -cr "/Applications/Doc Comparator.app"
+```
 
-> "손상되었기 때문에 열 수 없습니다" 오류가 뜨면 위 방법 2를 실행하세요.
+> ⚠️ **"손상됨" 경고는 우클릭 → 열기로는 해제되지 않습니다.** 반드시 위 `xattr -cr` 명령을 사용하세요.
+> ("확인되지 않은 개발자" 경고와 달리, ad-hoc 서명 앱의 "손상됨" 경고는 격리 속성 제거가 유일한 방법입니다.)
 > (경고 없이 실행하려면 Apple Developer ID 서명 + 공증이 필요합니다.)
 
 ### 개발 모드 (Electron)
