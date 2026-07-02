@@ -8,13 +8,13 @@ export const runtime = 'nodejs';
 // 환경변수 (둘 중 하나):
 //   사내 프록시:   GAP_PROXY_URL  (+ 선택 GAP_PROXY_AUTH = Authorization 헤더 값)
 //   Anthropic 직접: ANTHROPIC_API_KEY (+ 선택 ANTHROPIC_BASE_URL)
-//   공통:          GAP_MODEL (기본 claude-sonnet-4-6)
+//   공통:          GAP_MODEL (기본 gpt-5.4 — 사내 LiteLLM 게이트웨이 제공 모델)
 
 const GAP_PROXY_URL = process.env.GAP_PROXY_URL || '';
 const GAP_PROXY_AUTH = process.env.GAP_PROXY_AUTH || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
-const MODEL = process.env.GAP_MODEL || 'claude-sonnet-4-6';
+const MODEL = process.env.GAP_MODEL || 'gpt-5.4';
 
 export const GAP_TYPES = ['핵심변경', '표현정합', '신규', '삭제', '확인필요'];
 
@@ -77,7 +77,7 @@ function buildUserPrompt({ name, oldFilename, newFilename, stats, diffs }) {
 async function callClaude(userPrompt) {
   const payload = {
     model: MODEL,
-    max_tokens: 2000,
+    max_tokens: 16000,
     temperature: 0.2,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
