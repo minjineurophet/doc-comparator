@@ -1,6 +1,6 @@
 {
   "name": "doc-comparator",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "dev:full": "concurrently -n docling,next -c cyan,green \"npm run docling\" \"npm run dev\"",
     "onlyoffice:start": "docker compose -f docker-compose.onlyoffice.yml up -d",
     "onlyoffice:stop": "docker compose -f docker-compose.onlyoffice.yml down",
+    "mock:gap": "node scripts/mock-gap-proxy.cjs",
     "postinstall": "node scripts/postinstall.cjs",
     "electron:dev": "electron .",
     "electron:build": "node scripts/build-electron.cjs",

@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { version } from "../package.json";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -23,7 +24,15 @@ export default function RootLayout({ children }) {
       lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body id="body-root" className="h-full">{children}</body>
+      <body id="body-root" className="h-full">
+        {children}
+        <footer
+          id="app-version-footer"
+          className="pointer-events-none fixed bottom-1 right-2 z-50 text-[10px] text-gray-400"
+        >
+          Doc Comparator v{version}
+        </footer>
+      </body>
     </html>
   );
 }

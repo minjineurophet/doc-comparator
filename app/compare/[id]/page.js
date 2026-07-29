@@ -367,7 +367,125 @@ function gapTypeBadge(type) {
   return GAP_TYPE_BADGE[GAP_TYPE_META[type]?.color] || GAP_TYPE_BADGE.gray;
 }
 
+function GapSettingsForm() {
+  const [form, setForm] = useState({ apiKey: '', proxyUrl: '', model: '' });
+  const [meta, setMeta] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+
+  const loadConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/gap-config');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '설정을 불러오지 못했습니다.');
+      setMeta(data);
+      setForm((f) => ({ ...f, proxyUrl: data.proxyUrl || '', model: data.model || '' }));
+    } catch (e) {
+      setSaveMsg({ ok: false, text: e.message });
+    }
+  }, []);
+
+  useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  const save = useCallback(async (payload) => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch('/api/gap-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '설정 저장에 실패했습니다.');
+      setMeta(data);
+      setForm((f) => ({ ...f, apiKey: '', proxyUrl: data.proxyUrl || '', model: data.model || '' }));
+      setSaveMsg({ ok: true, text: '저장되었습니다. 요약 생성/재생성을 다시 실행하세요.' });
+    } catch (e) {
+      setSaveMsg({ ok: false, text: e.message });
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const handleSave = () => {
+    // apiKey 는 입력했을 때만 전송(빈칸 = 기존 키 유지). proxyUrl/model 은 '' 로 클리어 가능.
+    const payload = { proxyUrl: form.proxyUrl, model: form.model };
+    if (form.apiKey.trim()) payload.apiKey = form.apiKey;
+    save(payload);
+  };
+
+  const inputCls = 'w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+
+  return (
+    <div id="gap-settings-form" className="border-t border-gray-100 bg-gray-50 px-4 py-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label htmlFor="gap-api-key" className="block mb-1 text-xs font-semibold text-gray-600">API 키</label>
+          <input
+            id="gap-api-key"
+            type="password"
+            autoComplete="off"
+            value={form.apiKey}
+            onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
+            placeholder={meta?.hasApiKey ? `저장된 키: ****${meta.apiKeyLast4} (변경 시에만 입력)` : '예: sk-ant-…'}
+            className={inputCls}
+          />
+          {meta?.hasApiKey && (
+            <button
+              type="button"
+              onClick={() => save({ apiKey: '' })}
+              disabled={saving}
+              className="mt-1 text-xs text-red-500 hover:text-red-700 hover:underline disabled:opacity-50"
+            >
+              저장된 키 삭제
+            </button>
+          )}
+        </div>
+        <div>
+          <label htmlFor="gap-proxy-url" className="block mb-1 text-xs font-semibold text-gray-600">프록시 URL</label>
+          <input
+            id="gap-proxy-url"
+            type="text"
+            value={form.proxyUrl}
+            onChange={(e) => setForm((f) => ({ ...f, proxyUrl: e.target.value }))}
+            placeholder="예: https://llm-gateway.example.com"
+            className={inputCls}
+          />
+          <p className="mt-1 text-xs text-gray-400">프록시와 API 키가 모두 있으면 프록시가 우선합니다.</p>
+        </div>
+        <div>
+          <label htmlFor="gap-model" className="block mb-1 text-xs font-semibold text-gray-600">모델 (선택)</label>
+          <input
+            id="gap-model"
+            type="text"
+            value={form.model}
+            onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+            placeholder="claude-sonnet-4-6"
+            className={inputCls}
+          />
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          id="gap-settings-save"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {saving ? '저장 중…' : '설정 저장'}
+        </button>
+        {saveMsg && (
+          <p className={`text-xs ${saveMsg.ok ? 'text-green-600' : 'text-red-600'}`}>{saveMsg.text}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GapAnalysisPanel({ summary, busy, error, onGenerate, onDownload, onJump, onClose }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <div id="gap-analysis-panel" className="flex-shrink-0 border-b border-gray-200 bg-white">
       <div className="flex items-center justify-between gap-3 px-4 py-2.5">
@@ -376,6 +494,15 @@ function GapAnalysisPanel({ summary, busy, error, onGenerate, onDownload, onJump
           {summary?.oneLine && <span className="text-xs text-gray-500 truncate">{summary.oneLine}</span>}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            id="gap-settings-toggle"
+            onClick={() => setSettingsOpen((o) => !o)}
+            aria-label="LLM 설정"
+            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${settingsOpen ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            ⚙ 설정
+          </button>
           {summary && (
             <button
               type="button"
@@ -397,9 +524,22 @@ function GapAnalysisPanel({ summary, busy, error, onGenerate, onDownload, onJump
         </div>
       </div>
 
+      {settingsOpen && <GapSettingsForm />}
+
       {error && (
         <div className="px-4 pb-2.5">
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">⚠ {error}</p>
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+            ⚠ {error.message}
+            {error.code === 'NOT_CONFIGURED' && !settingsOpen && (
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                className="ml-2 font-semibold text-blue-600 hover:underline"
+              >
+                ⚙ 설정 열기
+              </button>
+            )}
+          </p>
         </div>
       )}
 
@@ -885,11 +1025,12 @@ export default function DiffView() {
       saveComparison(updated);
       setComparison(updated);
     } catch (e) {
-      setGapError(
-        e.code === 'NOT_CONFIGURED'
-          ? '갭 분석 LLM이 설정되지 않았습니다. 서버에 GAP_PROXY_URL 또는 ANTHROPIC_API_KEY를 설정하세요.'
-          : e.message
-      );
+      setGapError({
+        code: e.code,
+        message: e.code === 'NOT_CONFIGURED'
+          ? '갭 분석 LLM이 설정되지 않았습니다. ⚙ 설정에서 API 키 또는 프록시 URL을 입력하세요.'
+          : e.message,
+      });
     } finally {
       setGapBusy(false);
     }

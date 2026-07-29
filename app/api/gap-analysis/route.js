@@ -1,20 +1,16 @@
 import { NextResponse } from 'next/server';
+import { resolveLlmConfig } from '@/lib/gapConfig';
 
 export const runtime = 'nodejs';
 
 // 갭 분석 요약 API — 비교 diff(갭) 내용을 읽어 LLM(Claude)이 분석·요약한다.
 // 서버에서 호출하므로 API 키가 클라이언트에 노출되지 않는다.
 //
-// 환경변수 (둘 중 하나):
-//   사내 프록시:   GAP_PROXY_URL  (+ 선택 GAP_PROXY_AUTH = Authorization 헤더 값)
-//   Anthropic 직접: ANTHROPIC_API_KEY (+ 선택 ANTHROPIC_BASE_URL)
-//   공통:          GAP_MODEL (기본 claude-sonnet-4-6)
-
-const GAP_PROXY_URL = process.env.GAP_PROXY_URL || '';
-const GAP_PROXY_AUTH = process.env.GAP_PROXY_AUTH || '';
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
-const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
-const MODEL = process.env.GAP_MODEL || 'claude-sonnet-4-6';
+// 설정은 요청 시점에 lib/gapConfig.js 로 해석한다:
+//   설정 화면 저장값(gap-config.json) > 환경변수 폴백.
+//   사내 프록시:   proxyUrl / GAP_PROXY_URL  (+ 선택 proxyAuth / GAP_PROXY_AUTH)
+//   Anthropic 직접: apiKey / ANTHROPIC_API_KEY (+ 선택 baseUrl / ANTHROPIC_BASE_URL)
+//   공통:          model / GAP_MODEL (기본 claude-sonnet-4-6)
 
 export const GAP_TYPES = ['핵심변경', '표현정합', '신규', '삭제', '확인필요'];
 
@@ -74,29 +70,41 @@ function buildUserPrompt({ name, oldFilename, newFilename, stats, diffs }) {
   ].join('\n');
 }
 
-async function callClaude(userPrompt) {
+async function callClaude(userPrompt, cfg) {
   const payload = {
-    model: MODEL,
-    max_tokens: 2000,
+    model: cfg.model,
+    // GPT 계열은 출력이 장황해 2000 토큰으로는 조항 많은 문서에서 JSON이 잘린다.
+    max_tokens: 16000,
     temperature: 0.2,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userPrompt }],
   };
 
   let url, headers;
-  if (GAP_PROXY_URL) {
-    url = GAP_PROXY_URL;
+  if (cfg.proxyUrl) {
+    url = cfg.proxyUrl;
+    // 게이트웨이 루트만 입력한 경우(경로 없음) 표준 메시지 엔드포인트를 붙인다 —
+    // 루트로 POST 하면 HTML(302 페이지)이 돌아와 JSON 파싱 에러가 난다.
+    try {
+      const u = new URL(url);
+      if (u.pathname === '' || u.pathname === '/') {
+        u.pathname = '/v1/messages';
+        url = u.toString();
+      }
+    } catch { /* URL 파싱 실패 시 입력값 그대로 사용 */ }
     headers = { 'Content-Type': 'application/json' };
-    if (GAP_PROXY_AUTH) headers['Authorization'] = GAP_PROXY_AUTH;
-  } else if (ANTHROPIC_API_KEY) {
-    url = `${ANTHROPIC_BASE_URL.replace(/\/$/, '')}/v1/messages`;
+    // proxyAuth 가 없으면 저장된 API 키를 Bearer 로 전송 — LiteLLM 게이트웨이 표준 인증.
+    const auth = cfg.proxyAuth || (cfg.apiKey ? `Bearer ${cfg.apiKey}` : '');
+    if (auth) headers['Authorization'] = auth;
+  } else if (cfg.apiKey) {
+    url = `${cfg.baseUrl.replace(/\/$/, '')}/v1/messages`;
     headers = {
       'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
+      'x-api-key': cfg.apiKey,
       'anthropic-version': '2023-06-01',
     };
   } else {
-    const e = new Error('갭 분석 LLM이 설정되지 않았습니다. GAP_PROXY_URL 또는 ANTHROPIC_API_KEY를 설정하세요.');
+    const e = new Error('갭 분석 LLM이 설정되지 않았습니다. 갭 분석 패널의 ⚙ 설정에서 API 키 또는 프록시 URL을 입력하세요.');
     e.code = 'NOT_CONFIGURED';
     throw e;
   }
@@ -121,7 +129,7 @@ function extractText(data) {
   return data?.text || data?.completion || data?.choices?.[0]?.message?.content || data?.message?.content || '';
 }
 
-function parseSummary(text) {
+function parseSummary(text, model) {
   if (!text) throw new Error('LLM이 빈 응답을 반환했습니다.');
   let raw = text.trim();
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -142,7 +150,7 @@ function parseSummary(text) {
     groups: GAP_TYPES.reduce((acc, t) => { acc[t] = Array.isArray(groups[t]) ? groups[t] : []; return acc; }, {}),
     decisions: Array.isArray(obj.decisions) ? obj.decisions : [],
     generatedAt: new Date().toISOString(),
-    model: MODEL,
+    model,
   };
 }
 
@@ -152,8 +160,9 @@ export async function POST(request) {
     if (!body?.diffs?.length) {
       return NextResponse.json({ error: '비교 diff가 없습니다.' }, { status: 400 });
     }
-    const text = await callClaude(buildUserPrompt(body));
-    return NextResponse.json(parseSummary(text));
+    const cfg = await resolveLlmConfig();
+    const text = await callClaude(buildUserPrompt(body), cfg);
+    return NextResponse.json(parseSummary(text, cfg.model));
   } catch (err) {
     const status = err.code === 'NOT_CONFIGURED' ? 503 : 500;
     return NextResponse.json({ error: err.message, code: err.code }, { status });
